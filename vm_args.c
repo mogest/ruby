@@ -386,7 +386,8 @@ static void
 args_setup_kw_parameters(VALUE* const passed_values, const int passed_keyword_len, const VALUE *const passed_keywords,
 			 const rb_iseq_t * const iseq, VALUE * const locals)
 {
-    const ID *acceptable_keywords = iseq->body->param.keyword->table;
+    const ID *acceptable_keywords;
+    ID modified_acceptable_keywords[iseq->body->param.keyword->num];
     const int req_key_num = iseq->body->param.keyword->required_num;
     const int key_num = iseq->body->param.keyword->num;
     const VALUE * const default_values = iseq->body->param.keyword->default_values;
@@ -394,6 +395,17 @@ args_setup_kw_parameters(VALUE* const passed_values, const int passed_keyword_le
     int i, di, found = 0;
     int unspecified_bits = 0;
     VALUE unspecified_bits_value = Qnil;
+
+    if (iseq->body->param.flags.has_ivars) {
+	const ID *pid = iseq->body->param.keyword->table;
+	for (i=0; i<iseq->body->param.keyword->num; i++, pid++) {
+	    modified_acceptable_keywords[i] = rb_is_instance_id(*pid) ? rb_intern(rb_id2name(*pid) + 1) : *pid;
+	}
+	acceptable_keywords = (const ID *)&modified_acceptable_keywords;
+    }
+    else {
+	acceptable_keywords = iseq->body->param.keyword->table;
+    }
 
     for (i=0; i<req_key_num; i++) {
 	ID key = acceptable_keywords[i];
@@ -485,6 +497,22 @@ args_setup_block_parameter(rb_thread_t *th, struct rb_calling_info *calling, VAL
 	}
     }
     *locals = blockval;
+}
+
+static inline void
+args_setup_ivar_parameters(const rb_iseq_t * const iseq, struct rb_calling_info *calling, VALUE *locals)
+{
+    unsigned int i;
+    ID id;
+
+    for (i=0; i<iseq->body->local_table_size; i++) {
+	id = iseq->body->local_table[i];
+
+	if (rb_is_instance_id(id)) {
+	    rb_ivar_set(calling->recv, id, locals[i]);
+	    locals[i] = Qnil;
+	}
+    }
 }
 
 struct fill_values_arg {
@@ -676,6 +704,10 @@ setup_parameters_complex(rb_thread_t * const th, const rb_iseq_t * const iseq,
 
     if (iseq->body->param.flags.has_block) {
 	args_setup_block_parameter(th, calling, locals + iseq->body->param.block_start);
+    }
+
+    if (iseq->body->param.flags.has_ivars) {
+	args_setup_ivar_parameters(iseq, calling, locals);
     }
 
 #if 0

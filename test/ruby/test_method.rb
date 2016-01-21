@@ -953,4 +953,64 @@ class TestMethod < Test::Unit::TestCase
     assert_equal('1', obj.foo(1))
     assert_equal('1', obj.bar(1))
   end
+
+  class IvarArgumentExample
+    def initialize(local, @ivar, @def = 9, kwarg:, @ikwarg:, @idkwarg: 10)
+      @stored_local = local
+      @stored_kwarg = kwarg
+    end
+
+    def ivar_values
+      [@ivar, @def, @ikwarg, @idkwarg]
+    end
+
+    def local_values
+      [@local, @kwarg]
+    end
+
+    def stored_local_values
+      [@stored_local, @stored_kwarg]
+    end
+  end
+
+  def ivar_argument_example
+    IvarArgumentExample.new(1, 2, kwarg: 4, ikwarg: 5)
+  end
+
+  def test_ivar_arguments_basic
+    assert_equal [2, 9, 5, 10], ivar_argument_example.ivar_values
+  end
+
+  def test_ivar_arguments_supplying_optionals
+    values = IvarArgumentExample.new(1, 2, 3, kwarg: 4, ikwarg: 5, idkwarg: 6).ivar_values
+    assert_equal [2, 3, 5, 6], values
+  end
+
+  def test_local_arguments_are_not_set_as_ivars
+    assert_equal [nil, nil], ivar_argument_example.local_values
+  end
+
+  def test_local_arguments_were_stored
+    assert_equal [1, 4], ivar_argument_example.stored_local_values
+  end
+
+  def test_ivar_arguments_are_not_accepted_in_a_block
+    assert_raise(SyntaxError) do
+      eval "[].each { |@x| true }"
+    end
+  end
+
+  def test_ivar_arguments_are_not_accepted_in_a_lambda
+    assert_raise(SyntaxError) do
+      eval "-> (@x) { true }"
+    end
+  end
+
+  def accessing_ivar_as_local(@ivar)
+    ivar # this should raise
+  end
+
+  def test_ivar_arguments_are_not_exposed_as_local_variables
+    assert_raise(NameError) { accessing_ivar_as_local(10) }
+  end
 end

@@ -1344,7 +1344,8 @@ simple_iseq_p(const rb_iseq_t *iseq)
 	   iseq->body->param.flags.has_post == FALSE &&
 	   iseq->body->param.flags.has_kw == FALSE &&
 	   iseq->body->param.flags.has_kwrest == FALSE &&
-	   iseq->body->param.flags.has_block == FALSE;
+	   iseq->body->param.flags.has_block == FALSE &&
+	   iseq->body->param.flags.has_ivars == FALSE;
 }
 
 static inline int

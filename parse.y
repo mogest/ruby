@@ -305,6 +305,8 @@ struct parser_params {
     unsigned int past_scope_enabled: 1;
 # endif
     unsigned int error_p: 1;
+    unsigned int ivar_arg_seen: 1;
+    unsigned int in_def_args: 1;
 
 #ifndef RIPPER
     /* Ruby core only */
@@ -857,7 +859,7 @@ static void token_info_pop(struct parser_params*, const char *token, size_t len)
 %type <node> command_args aref_args opt_block_arg block_arg var_ref var_lhs
 %type <node> command_asgn mrhs mrhs_arg superclass block_call block_command
 %type <node> f_block_optarg f_block_opt
-%type <node> f_arglist f_args f_arg f_arg_item f_optarg f_marg f_marg_list f_margs
+%type <node> f_arglist f_def_args f_args f_arg f_arg_item f_optarg f_marg f_marg_list f_margs
 %type <node> assoc_list assocs assoc undef_list backref string_dvar for_var
 %type <node> block_param opt_block_param block_param_def f_opt
 %type <node> f_kwarg f_kw f_block_kwarg f_block_kw
@@ -4526,7 +4528,7 @@ superclass	: '<'
 		    }
 		;
 
-f_arglist	: '(' f_args rparen
+f_arglist	: '(' f_def_args rparen
 		    {
 		    /*%%%*/
 			$$ = $2;
@@ -4541,7 +4543,7 @@ f_arglist	: '(' f_args rparen
 			parser->in_kwarg = 1;
 			lex_state |= EXPR_LABEL; /* force for args */
 		    }
-		    f_args term
+		    f_def_args term
 		    {
 			parser->in_kwarg = !!$<num>1;
 			$$ = $2;
@@ -4641,20 +4643,20 @@ f_args		: f_arg ',' f_optarg ',' f_rest_arg opt_args_tail
 		    }
 		;
 
+f_def_args	:   {
+			parser->in_def_args = 1;
+			parser->ivar_arg_seen = 0;
+		    }
+		f_args
+		    {
+			parser->in_def_args = 0;
+			$$ = $2;
+		    }
+
 f_bad_arg	: tCONSTANT
 		    {
 		    /*%%%*/
 			yyerror("formal argument cannot be a constant");
-			$$ = 0;
-		    /*%
-			$$ = dispatch1(param_error, $1);
-			ripper_error();
-		    %*/
-		    }
-		| tIVAR
-		    {
-		    /*%%%*/
-			yyerror("formal argument cannot be an instance variable");
 			$$ = 0;
 		    /*%
 			$$ = dispatch1(param_error, $1);
@@ -4688,6 +4690,30 @@ f_norm_arg	: f_bad_arg
 		    {
 			formal_argument(get_id($1));
 			$$ = $1;
+		    }
+		| tIVAR
+		    {
+		    /*%%%*/
+			if (!parser->in_def_args) {
+			    yyerror("formal argument cannot be an instance variable in a block");
+			    $$ = 0;
+			}
+			else {
+			    parser->ivar_arg_seen = 1;
+			    formal_argument(get_id($1));
+			    $$ = $1;
+			}
+		    /*%
+			if (!parser->in_def_args) {
+			    $$ = dispatch1(param_error, $1);
+			    ripper_error();
+			}
+			else {
+			    parser->ivar_arg_seen = 1;
+			    formal_argument(get_id($1));
+			    $$ = $1;
+			}
+		    %*/
 		    }
 		;
 
@@ -6942,13 +6968,13 @@ formal_argument_gen(struct parser_params *parser, ID lhs)
 {
     switch (id_type(lhs)) {
       case ID_LOCAL:
+	shadowing_lvar(lhs);
+	break;
+      case ID_INSTANCE:
 	break;
 #ifndef RIPPER
       case ID_CONST:
 	yyerror("formal argument cannot be a constant");
-	return 0;
-      case ID_INSTANCE:
-	yyerror("formal argument cannot be an instance variable");
 	return 0;
       case ID_GLOBAL:
 	yyerror("formal argument cannot be a global variable");
@@ -6966,7 +6992,6 @@ formal_argument_gen(struct parser_params *parser, ID lhs)
 	return 0;
 #endif
     }
-    shadowing_lvar(lhs);
     return lhs;
 }
 
@@ -7963,6 +7988,13 @@ parse_atmark(struct parser_params *parser, const enum lex_state_e last_state)
     if (tokadd_ident(parser, c)) return 0;
     SET_LEX_STATE(EXPR_END);
     tokenize_ident(parser, last_state);
+
+    if (parser->in_def_args && result == tIVAR && peek(':')) {
+	nextc();
+	SET_LEX_STATE(EXPR_ARG|EXPR_LABELED);
+	return tLABEL;
+    }
+
     return result;
 }
 
@@ -10043,6 +10075,8 @@ new_args_gen(struct parser_params *parser, NODE *m, NODE *o, ID r, NODE *p, NODE
     args->rest_arg       = r;
 
     args->opt_args       = o;
+
+    args->has_ivars      = parser->ivar_arg_seen;
 
     ruby_sourceline = saved_line;
 

@@ -1435,6 +1435,10 @@ iseq_set_arguments(rb_iseq_t *iseq, LINK_ANCHOR *optargs, NODE *node_args)
 		}
 	    }
 	}
+
+	if (args->has_ivars) {
+	    iseq->body->param.flags.has_ivars = TRUE;
+	}
     }
 
     return COMPILE_OK;
